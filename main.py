@@ -5,10 +5,126 @@ import mysql.connector
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
-
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from datetime import datetime, timedelta
+from typing import Optional
+from fastapi import Depends, FastAPI, HTTPException, status
+from typing import List, Dict, Optional
+from fastapi import FastAPI, File, UploadFile, HTTPException, Path, Query, Depends, status
 app = FastAPI()
+# Authentication settings
+SECRET_KEY = "pds4FEQqoT9fG1CzS7MwZcAtJ-ttNSXUILO3KpfZJQU"  # Replace with a secure secret key
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+# Password hashing
+pwd_context = CryptContext(schemes=["sha256_crypt"], deprecated="auto")# User model
+class User(BaseModel):
+    username: str
+    hashed_password: str
 
-# Add CORS middleware
+# Token model
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+# Token data model
+class TokenData(BaseModel):
+    username: Optional[str] = None
+# Fake user database (replace with your actual user database)
+fake_users_db = {
+    "admin": {
+        "username": "admin",
+        "hashed_password": pwd_context.hash("adminpassword")  # Hashed password
+    }
+}
+# Verify password
+def verify_password(plain_password, hashed_password):
+# Hash a password
+    hashed_password = pwd_context.hash("adminpassword")
+    pwd_context.verify("adminpassword", hashed_password)
+    return pwd_context.verify(plain_password, hashed_password)
+
+# Get user from database
+def get_user(db, username: str):
+    if username in db:
+        user_dict = db[username]
+        return User(**user_dict)
+
+# Authenticate user
+def authenticate_user(fake_db, username: str, password: str):
+    user = get_user(fake_db, username)
+    if not user:
+        return False
+    if not verify_password(password, user.hashed_password):
+        return False
+    return user
+
+# Create access token
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+@app.post("/token", response_model=Token)
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+# OAuth2 scheme
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+        token_data = TokenData(username=username)
+    except JWTError:
+        raise credentials_exception
+    user = get_user(fake_users_db, username=token_data.username)
+    if user is None:
+        raise credentials_exception
+    return user
+
+@app.get("/invoices/", response_model=List[Dict])
+async def get_all_invoices(current_user: User = Depends(get_current_user)):
+    try:
+        # Connect to MySQL
+        connection = mysql.connector.connect(**db_config)
+        cursor = connection.cursor(dictionary=True)
+
+        # Fetch all invoices
+        cursor.execute("SELECT * FROM invoices")
+        invoices = cursor.fetchall()
+
+        return invoices
+    except mysql.connector.Error as err:
+        raise HTTPException(status_code=500, detail=f"Error fetching invoices: {err}")
+    finally:
+        # Close the connection
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins (replace "*" with your frontend URL in production)
@@ -164,7 +280,7 @@ def insert_into_mysql(invoice_data: Dict, items: List[Dict]) -> str:
             connection.close()
 
 @app.post("/upload-pdf/")
-async def upload_pdf(file: UploadFile = File(...)):
+async def upload_pdf(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
     # Save the uploaded file temporarily
     file_path = f"temp_{file.filename}"
     with open(file_path, "wb") as buffer:
@@ -209,7 +325,7 @@ async def get_all_invoices():
             connection.close()
 
 @app.get("/invoices/{invoice_id}", response_model=Dict)
-async def get_invoice_by_id(invoice_id: int = Path(..., description="The ID of the invoice")):
+async def get_invoice_by_id(invoice_id: int = Path(..., description="The ID of the invoice"), current_user: User = Depends(get_current_user)):
     try:
         # Connect to MySQL
         connection = mysql.connector.connect(**db_config)

@@ -1,0 +1,6 @@
+fastapi==0.95.2
+uvicorn==0.22.0
+mysql-connector-python==8.0.33
+pdfplumber==0.9.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
