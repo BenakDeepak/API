@@ -171,11 +171,3 @@ curl -X PUT "http://127.0.0.1:8000/invoices/1" \
 
 ---
 
-### **5. Troubleshooting**
-- **401 Unauthorized**: Ensure the token is valid and included in the `Authorization` header.
-- **422 Validation Error**: Ensure the request body is formatted correctly (e.g., `x-www-form-urlencoded` for `/token`).
-- **500 Internal Server Error**: Check the FastAPI server logs for details.
-
----
-
-Let me know if you need further assistance!
