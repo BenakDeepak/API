@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invoice Management</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        table, th, td {
+            border: 1px solid #ddd;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+        }
+        th {
+            background-color: #f4f4f4;
+        }
+        form {
+            margin-bottom: 20px;
+        }
+        input, button {
+            padding: 8px;
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Invoice Management</h1>
+
+    <!-- Form for creating/updating invoices -->
+    <form id="invoiceForm">
+        <input type="text" id="invoiceNumber" placeholder="Invoice Number" required>
+        <input type="text" id="invoiceDate" placeholder="Invoice Date" required>
+        <input type="text" id="vendorName" placeholder="Vendor Name" required>
+        <input type="number" id="subTotal" placeholder="Sub Total" required>
+        <input type="number" id="discount" placeholder="Discount" required>
+        <input type="number" id="grandTotal" placeholder="Grand Total" required>
+        <input type="text" id="ewaybillNumber" placeholder="E-Waybill Number">
+        <button type="submit">Save Invoice</button>
+    </form>
+
+    <!-- Table to display invoices -->
+    <table id="invoiceTable">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Invoice Number</th>
+                <th>Invoice Date</th>
+                <th>Vendor Name</th>
+                <th>Sub Total</th>
+                <th>Discount</th>
+                <th>Grand Total</th>
+                <th>E-Waybill Number</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            <!-- Invoices will be dynamically added here -->
+        </tbody>
+    </table>
+
+    <script>
+        const API_URL = "http://127.0.0.1:8000";
+
+        // Fetch and display all invoices
+        async function fetchInvoices() {
+            const response = await fetch(`${API_URL}/invoices/`);
+            const invoices = await response.json();
+            const tbody = document.querySelector("#invoiceTable tbody");
+            tbody.innerHTML = "";
+
+            invoices.forEach(invoice => {
+                const row = document.createElement("tr");
+                row.innerHTML = `
+                    <td>${invoice.id}</td>
+                    <td>${invoice.invoice_number}</td>
+                    <td>${invoice.invoice_date}</td>
+                    <td>${invoice.vendor_name}</td>
+                    <td>${invoice.sub_total}</td>
+                    <td>${invoice.discount}</td>
+                    <td>${invoice.grand_total}</td>
+                    <td>${invoice.ewaybill_number || "N/A"}</td>
+                    <td>
+                        <button onclick="editInvoice(${invoice.id})">Edit</button>
+                        <button onclick="deleteInvoice(${invoice.id})">Delete</button>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        // Handle form submission (Create/Update)
+        document.getElementById("invoiceForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+
+            const invoice = {
+                invoice_number: document.getElementById("invoiceNumber").value,
+                invoice_date: document.getElementById("invoiceDate").value,
+                vendor_name: document.getElementById("vendorName").value,
+                sub_total: parseFloat(document.getElementById("subTotal").value),
+                discount: parseFloat(document.getElementById("discount").value),
+                grand_total: parseFloat(document.getElementById("grandTotal").value),
+                ewaybill_number: document.getElementById("ewaybillNumber").value
+            };
+
+            const invoiceId = document.getElementById("invoiceForm").dataset.invoiceId;
+            if (invoiceId) {
+                // Update existing invoice
+                await fetch(`${API_URL}/invoices/${invoiceId}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(invoice)
+                });
+            } else {
+                // Create new invoice
+                await fetch(`${API_URL}/upload-pdf/`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(invoice)
+                });
+            }
+
+            // Reset form and refresh table
+            document.getElementById("invoiceForm").reset();
+            delete document.getElementById("invoiceForm").dataset.invoiceId;
+            fetchInvoices();
+        });
+
+        // Edit invoice
+        async function editInvoice(id) {
+            const response = await fetch(`${API_URL}/invoices/${id}`);
+            const invoice = await response.json();
+
+            document.getElementById("invoiceNumber").value = invoice.invoice_number;
+            document.getElementById("invoiceDate").value = invoice.invoice_date;
+            document.getElementById("vendorName").value = invoice.vendor_name;
+            document.getElementById("subTotal").value = invoice.sub_total;
+            document.getElementById("discount").value = invoice.discount;
+            document.getElementById("grandTotal").value = invoice.grand_total;
+            document.getElementById("ewaybillNumber").value = invoice.ewaybill_number || "";
+
+            document.getElementById("invoiceForm").dataset.invoiceId = id;
+        }
+
+        // Delete invoice
+        async function deleteInvoice(id) {
+            if (confirm("Are you sure you want to delete this invoice?")) {
+                await fetch(`${API_URL}/invoices/${id}`, { method: "DELETE" });
+                fetchInvoices();
+            }
+        }
+
+        // Load invoices on page load
+        fetchInvoices();
+    </script>
+</body>
+</html>
