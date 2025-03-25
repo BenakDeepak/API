@@ -10,7 +10,6 @@ import pdfplumber
 import re
 import mysql.connector
 import os
-from typing import Optional
 
 app = FastAPI(
     swagger_ui_init_oauth={
@@ -162,7 +161,6 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-# PDF Processing Functions
 def extract_invoice_data(pdf_path: str) -> Dict:
     with pdfplumber.open(pdf_path) as pdf:
         text = ""
@@ -182,18 +180,26 @@ def extract_invoice_data(pdf_path: str) -> Dict:
     invoice_data = {}
     for field, pattern in invoice_patterns.items():
         match = re.search(pattern, text)
-        invoice_data[field] = match.group(1).strip() if match else None
+        if match:
+            # Remove all \n from extracted text
+            cleaned_value = match.group(1).strip().replace("\n", "")
+            invoice_data[field] = cleaned_value
+        else:
+            invoice_data[field] = None
 
     items = []
     tables = pdf.pages[0].extract_tables()
     for table in tables:
         for row in table[1:]:
             if len(row) >= 10:
-                hsn_sac = row[1].replace("\n", "").strip()
+                # Remove \n from description and hsn_sac
+                description = row[0].strip().replace("\n", " ")
+                hsn_sac = row[1].strip().replace("\n", "")
+                
                 item = {
-                    "description": row[0].strip(),
+                    "description": description,
                     "hsn_sac": hsn_sac,
-                    "expiry": row[2].strip(),
+                    "expiry": row[2].strip().replace("\n", ""),
                     "quantity": float(row[3].strip()),
                     "deal": float(row[4].strip()),
                     "total_quantity": float(row[5].strip()),
@@ -315,50 +321,30 @@ async def get_all_invoices(current_user: User = Depends(get_current_user)):
             cursor.close()
             connection.close()
 
-
-@app.get("/invoices/", response_model=Dict)
-async def get_invoices(
-    invoice_id: Optional[int] = None,
-    search_items: Optional[str] = None,
+@app.get("/invoices/{invoice_id}", response_model=Dict)
+async def get_invoice_by_id(
+    invoice_id: int = Path(..., description="The ID of the invoice"),
     current_user: User = Depends(get_current_user)
 ):
     connection = mysql.connector.connect(**db_config)
     cursor = connection.cursor(dictionary=True)
     
     try:
-        if invoice_id:  # Specific invoice mode
-            cursor.execute("SELECT * FROM invoices WHERE id = %s", (invoice_id,))
-            invoice = cursor.fetchone()
-            if not invoice:
-                raise HTTPException(status_code=404, detail="Invoice not found")
+        cursor.execute("SELECT * FROM invoices WHERE id = %s", (invoice_id,))
+        invoice = cursor.fetchone()
+        if not invoice:
+            raise HTTPException(status_code=404, detail="Invoice not found")
 
-            cursor.execute("SELECT * FROM invoice_items WHERE invoice_id = %s", (invoice_id,))
-            invoice["items"] = cursor.fetchall()
-            return invoice
-            
-        elif search_items:  # Search mode
-            query = """
-                SELECT ii.*, i.invoice_number 
-                FROM invoice_items ii
-                JOIN invoices i ON ii.invoice_id = i.id
-                WHERE ii.description LIKE %s
-            """
-            cursor.execute(query, (f"%{search_items}%",))
-            return {"results": cursor.fetchall()}
-            
-        else:
-            raise HTTPException(
-                status_code=400, 
-                detail="Either provide invoice_id or search_items parameter"
-            )
-            
+        cursor.execute("SELECT * FROM invoice_items WHERE invoice_id = %s", (invoice_id,))
+        items = cursor.fetchall()
+
+        return {"invoice": invoice, "items": items}
     except mysql.connector.Error as err:
         raise HTTPException(status_code=500, detail=f"Database error: {err}")
     finally:
         if connection.is_connected():
             cursor.close()
             connection.close()
-
 @app.put("/invoices/{invoice_id}", response_model=Dict)
 async def update_invoice(
     invoice_id: int,
@@ -393,6 +379,46 @@ async def update_invoice(
             cursor.close()
             connection.close()
 
+@app.put("/invoice_items/{item_id}", response_model=Dict)
+async def update_invoice_item(
+    item_id: int,
+    item_update: InvoiceUpdate,
+    current_user: User = Depends(get_current_user)
+):
+    connection = mysql.connector.connect(**db_config)
+    cursor = connection.cursor()
+    
+    try:
+        # First check if the item exists
+        cursor.execute("SELECT id FROM invoice_items WHERE id = %s", (item_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Invoice item not found")
+
+        # Build the update query
+        update_fields = []
+        update_values = []
+        for field, value in item_update.dict().items():
+            if value is not None:
+                update_fields.append(f"{field} = %s")
+                update_values.append(value)
+
+        if not update_fields:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        update_query = f"UPDATE invoice_items SET {', '.join(update_fields)} WHERE id = %s"
+        update_values.append(item_id)
+        cursor.execute(update_query, update_values)
+        connection.commit()
+
+        return {"message": "Invoice item updated successfully"}
+    except mysql.connector.Error as err:
+        connection.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {err}")
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
+
 @app.delete("/invoices/{invoice_id}", response_model=Dict)
 async def delete_invoice(
     invoice_id: int,
@@ -412,7 +438,57 @@ async def delete_invoice(
         if connection.is_connected():
             cursor.close()
             connection.close()
-
+@app.delete("/invoice_items/{item_id}", response_model=Dict)
+async def delete_invoice_item(
+    item_id: int,
+    current_user: User = Depends(get_current_user)
+):
+    connection = mysql.connector.connect(**db_config)
+    cursor = connection.cursor()
+    
+    try:
+        # First, get the invoice_id and amount of the item being deleted
+        cursor.execute("SELECT invoice_id, amount FROM invoice_items WHERE id = %s", (item_id,))
+        item_data = cursor.fetchone()
+        
+        if not item_data:
+            raise HTTPException(status_code=404, detail="Invoice item not found")
+            
+        invoice_id = item_data[0]
+        item_amount = item_data[1]
+        
+        # Delete the item
+        cursor.execute("DELETE FROM invoice_items WHERE id = %s", (item_id,))
+        
+        # Get current invoice totals
+        cursor.execute("SELECT sub_total, discount, grand_total FROM invoices WHERE id = %s", (invoice_id,))
+        invoice_data = cursor.fetchone()
+        
+        if not invoice_data:
+            raise HTTPException(status_code=404, detail="Invoice not found")
+            
+        current_sub_total, current_discount, current_grand_total = invoice_data
+        
+        # Calculate new totals
+        new_sub_total = current_sub_total - item_amount
+        new_grand_total = new_sub_total - current_discount
+        
+        # Update the invoice with new totals
+        cursor.execute(
+            "UPDATE invoices SET sub_total = %s, grand_total = %s WHERE id = %s",
+            (new_sub_total, new_grand_total, invoice_id)
+        )
+        
+        connection.commit()
+        return {"message": "Invoice item deleted successfully and invoice totals updated"}
+        
+    except mysql.connector.Error as err:
+        connection.rollback()
+        raise HTTPException(status_code=500, detail=f"Database error: {err}")
+    finally:
+        if connection.is_connected():
+            cursor.close()
+            connection.close()
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
