@@ -57,31 +57,31 @@ pip install -r requirements.txt
    USE APIS;
 
    CREATE TABLE invoices (
-       id INT AUTO_INCREMENT PRIMARY KEY,
-       invoice_number VARCHAR(50),
-       invoice_date VARCHAR(50),
-       vendor_name VARCHAR(100),
-       sub_total DECIMAL(10, 2),
-       discount DECIMAL(10, 2),
-       grand_total DECIMAL(10, 2),
-       ewaybill_number VARCHAR(50)
-   );
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    invoice_number VARCHAR(50),
+    invoice_date VARCHAR(50),
+    vendor_name VARCHAR(100),
+    sub_total DECIMAL(10, 2),
+    discount DECIMAL(10, 2),
+    grand_total DECIMAL(10, 2),
+    ewaybill_number VARCHAR(50)
+);
 
-   CREATE TABLE invoice_items (
-       id INT AUTO_INCREMENT PRIMARY KEY,
-       invoice_id INT,
-       description VARCHAR(255),
-       hsn_sac VARCHAR(50),
-       expiry VARCHAR(50),
-       quantity DECIMAL(10, 2),
-       deal DECIMAL(10, 2),
-       total_quantity DECIMAL(10, 2),
-       mrp DECIMAL(10, 2),
-       tax DECIMAL(10, 2),
-       discount_percent DECIMAL(10, 2),
-       amount DECIMAL(10, 2),
-       FOREIGN KEY (invoice_id) REFERENCES invoices(id)
-   );
+CREATE TABLE invoice_items (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    invoice_id INT,
+    description VARCHAR(255),
+    hsn_sac VARCHAR(50),
+    expiry VARCHAR(50),
+    quantity DECIMAL(10, 2),
+    deal DECIMAL(10, 2),
+    total_quantity DECIMAL(10, 2),
+    mrp DECIMAL(10, 2),
+    tax DECIMAL(10, 2),
+    discount_percent DECIMAL(10, 2),
+    amount DECIMAL(10, 2),
+    FOREIGN KEY (invoice_id) REFERENCES invoices(id) ON DELETE CASCADE
+);
    ```
 
 ### 5. Configure the Database Connection
