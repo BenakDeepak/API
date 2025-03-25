@@ -10,6 +10,7 @@ import pdfplumber
 import re
 import mysql.connector
 import os
+from typing import Optional
 
 app = FastAPI(
     swagger_ui_init_oauth={
@@ -287,14 +288,25 @@ async def upload_pdf(
         if os.path.exists(file_path):
             os.remove(file_path)
 
+from typing import List, Dict
+from fastapi import Depends, HTTPException
+import mysql.connector
+
 @app.get("/invoices/", response_model=List[Dict])
 async def get_all_invoices(current_user: User = Depends(get_current_user)):
     connection = mysql.connector.connect(**db_config)
     cursor = connection.cursor(dictionary=True)
     
     try:
+        # Get invoices
         cursor.execute("SELECT * FROM invoices")
         invoices = cursor.fetchall()
+        
+        # Get invoice items for each invoice
+        for invoice in invoices:
+            cursor.execute("SELECT * FROM invoice_items WHERE invoice_id = %s", (invoice['id'],))
+            invoice['items'] = cursor.fetchall()
+            
         return invoices
     except mysql.connector.Error as err:
         raise HTTPException(status_code=500, detail=f"Database error: {err}")
@@ -303,24 +315,43 @@ async def get_all_invoices(current_user: User = Depends(get_current_user)):
             cursor.close()
             connection.close()
 
-@app.get("/invoices/{invoice_id}", response_model=Dict)
-async def get_invoice_by_id(
-    invoice_id: int = Path(..., description="The ID of the invoice"),
+
+@app.get("/invoices/", response_model=Dict)
+async def get_invoices(
+    invoice_id: Optional[int] = None,
+    search_items: Optional[str] = None,
     current_user: User = Depends(get_current_user)
 ):
     connection = mysql.connector.connect(**db_config)
     cursor = connection.cursor(dictionary=True)
     
     try:
-        cursor.execute("SELECT * FROM invoices WHERE id = %s", (invoice_id,))
-        invoice = cursor.fetchone()
-        if not invoice:
-            raise HTTPException(status_code=404, detail="Invoice not found")
+        if invoice_id:  # Specific invoice mode
+            cursor.execute("SELECT * FROM invoices WHERE id = %s", (invoice_id,))
+            invoice = cursor.fetchone()
+            if not invoice:
+                raise HTTPException(status_code=404, detail="Invoice not found")
 
-        cursor.execute("SELECT * FROM invoice_items WHERE invoice_id = %s", (invoice_id,))
-        items = cursor.fetchall()
-
-        return {"invoice": invoice, "items": items}
+            cursor.execute("SELECT * FROM invoice_items WHERE invoice_id = %s", (invoice_id,))
+            invoice["items"] = cursor.fetchall()
+            return invoice
+            
+        elif search_items:  # Search mode
+            query = """
+                SELECT ii.*, i.invoice_number 
+                FROM invoice_items ii
+                JOIN invoices i ON ii.invoice_id = i.id
+                WHERE ii.description LIKE %s
+            """
+            cursor.execute(query, (f"%{search_items}%",))
+            return {"results": cursor.fetchall()}
+            
+        else:
+            raise HTTPException(
+                status_code=400, 
+                detail="Either provide invoice_id or search_items parameter"
+            )
+            
     except mysql.connector.Error as err:
         raise HTTPException(status_code=500, detail=f"Database error: {err}")
     finally:
