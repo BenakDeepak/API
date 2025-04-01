@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FastAPI Endpoint Tester</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 0 20px;
+        }
+        .endpoint {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .response {
+            background-color: #f0f0f0;
+            padding: 10px;
+            margin-top: 10px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        button {
+            padding: 5px 10px;
+            margin: 5px 0;
+        }
+        input, textarea {
+            width: 100%;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>FastAPI Endpoint Tester</h1>
+
+    <!-- Login Section -->
+    <div class="endpoint">
+        <h2>POST /token - Login</h2>
+        <input type="text" id="username" placeholder="Username (admin)" value="admin">
+        <input type="password" id="password" placeholder="Password (adminpassword)" value="adminpassword">
+        <button onclick="login()">Get Token</button>
+        <div id="token-response" class="response"></div>
+    </div>
+
+    <!-- Root Endpoint -->
+    <div class="endpoint">
+        <h2>GET / - Root</h2>
+        <button onclick="getRoot()">Test</button>
+        <div id="root-response" class="response"></div>
+    </div>
+
+    <!-- Upload PDF -->
+    <div class="endpoint">
+        <h2>POST /upload-pdf/ - Upload PDF</h2>
+        <form id="upload-form" onsubmit="uploadPDF(event)">
+            <input type="file" id="pdf-file" name="file" accept=".pdf">
+            <button type="submit">Upload</button>
+        </form>
+        <div id="upload-response" class="response"></div>
+    </div>
+
+    <!-- Get All Invoices -->
+    <div class="endpoint">
+        <h2>GET /invoices/ - Get All Invoices</h2>
+        <button onclick="getAllInvoices()">Test</button>
+        <div id="invoices-response" class="response"></div>
+    </div>
+
+    <!-- Get Invoice by ID -->
+    <div class="endpoint">
+        <h2>GET /invoices/{id} - Get Invoice by ID</h2>
+        <input type="number" id="invoice-id" placeholder="Invoice ID">
+        <button onclick="getInvoiceById()">Test</button>
+        <div id="invoice-by-id-response" class="response"></div>
+    </div>
+
+    <!-- Update Invoice -->
+    <div class="endpoint">
+        <h2>PUT /invoices/{id} - Update Invoice</h2>
+        <input type="number" id="update-invoice-id" placeholder="Invoice ID">
+        <textarea id="update-invoice-data" placeholder='{"invoice_number": "NEW123"}'></textarea>
+        <button onclick="updateInvoice()">Update</button>
+        <div id="update-invoice-response" class="response"></div>
+    </div>
+
+    <!-- Update Invoice Item -->
+    <div class="endpoint">
+        <h2>PUT /invoice_items/{id} - Update Invoice Item</h2>
+        <input type="number" id="update-item-id" placeholder="Item ID">
+        <textarea id="update-item-data" placeholder='{"description": "Updated Item"}'></textarea>
+        <button onclick="updateInvoiceItem()">Update</button>
+        <div id="update-item-response" class="response"></div>
+    </div>
+
+    <!-- Delete Invoice -->
+    <div class="endpoint">
+        <h2>DELETE /invoices/{id} - Delete Invoice</h2>
+        <input type="number" id="delete-invoice-id" placeholder="Invoice ID">
+        <button onclick="deleteInvoice()">Delete</button>
+        <div id="delete-invoice-response" class="response"></div>
+    </div>
+
+    <!-- Delete Invoice Item -->
+    <div class="endpoint">
+        <h2>DELETE /invoice_items/{id} - Delete Invoice Item</h2>
+        <input type="number" id="delete-item-id" placeholder="Item ID">
+        <button onclick="deleteInvoiceItem()">Delete</button>
+        <div id="delete-item-response" class="response"></div>
+    </div>
+
+    <script>
+        const BASE_URL = 'http://localhost:8000';
+        let token = '';
+
+        async function fetchWithAuth(url, options = {}) {
+            const headers = {
+                'Authorization': `Bearer ${token}`,
+                ...options.headers
+            };
+            try {
+                const response = await fetch(url, { ...options, headers });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response;
+            } catch (error) {
+                throw error;
+            }
+        }
+
+        async function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            try {
+                const response = await fetch(`${BASE_URL}/token`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `username=${username}&password=${password}`
+                });
+                const data = await response.json();
+                token = data.access_token;
+                document.getElementById('token-response').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('token-response').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function getRoot() {
+            try {
+                const response = await fetchWithAuth(`${BASE_URL}/`);
+                const data = await response.json();
+                document.getElementById('root-response').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('root-response').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function uploadPDF(event) {
+            event.preventDefault();
+            const file = document.getElementById('pdf-file').files[0];
+            if (!file) {
+                document.getElementById('upload-response').textContent = 'Please select a file';
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            try {
+                const response = await fetchWithAuth(`${BASE_URL}/upload-pdf/`, {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await response.json();
+                document.getElementById('upload-response').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('upload-response').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function getAllInvoices() {
+            try {
+                const response = await fetchWithAuth(`${BASE_URL}/invoices/`);
+                const data = await response.json();
+                document.getElementById('invoices-response').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('invoices-response').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function getInvoiceById() {
+            const id = document.getElementById('invoice-id').value;
+            try {
+                const response = await fetchWithAuth(`${BASE_URL}/invoices/${id}`);
+                const data = await response.json();
+                document.getElementById('invoice-by-id-response').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('invoice-by-id-response').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function updateInvoice() {
+            const id = document.getElementById('update-invoice-id').value;
+            try {
+                const data = JSON.parse(document.getElementById('update-invoice-data').value);
+                const response = await fetchWithAuth(`${BASE_URL}/invoices/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                document.getElementById('update-invoice-response').textContent = JSON.stringify(result, null, 2);
+            } catch (error) {
+                document.getElementById('update-invoice-response').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function updateInvoiceItem() {
+            const id = document.getElementById('update-item-id').value;
+            try {
+                const data = JSON.parse(document.getElementById('update-item-data').value);
+                const response = await fetchWithAuth(`${BASE_URL}/invoice_items/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                document.getElementById('update-item-response').textContent = JSON.stringify(result, null, 2);
+            } catch (error) {
+                document.getElementById('update-item-response').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function deleteInvoice() {
+            const id = document.getElementById('delete-invoice-id').value;
+            try {
+                const response = await fetchWithAuth(`${BASE_URL}/invoices/${id}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                document.getElementById('delete-invoice-response').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('delete-invoice-response').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function deleteInvoiceItem() {
+            const id = document.getElementById('delete-item-id').value;
+            try {
+                const response = await fetchWithAuth(`${BASE_URL}/invoice_items/${id}`, {
+                    method: 'DELETE'
+                });
+                const data = await response.json();
+                document.getElementById('delete-item-response').textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                document.getElementById('delete-item-response').textContent = `Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
